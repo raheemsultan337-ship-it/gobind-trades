@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>My Tasks — Labor Countdown</title>
+<style>
+  :root {
+    --bg:#0e1116; --panel:#161b22; --line:#263041; --text:#e6edf3;
+    --muted:#8b98a9; --accent:#4f9dff; --good:#2ea043; --warn:#d29922; --bad:#f85149;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:18px; margin:0; }
+  header span { color:var(--muted); font-size:13px; }
+  header a { margin-left:auto; color:var(--accent); font-size:13px; text-decoration:none; border:1px solid var(--line); padding:6px 12px; border-radius:6px; }
+  .wrap { max-width:720px; margin:0 auto; padding:24px; }
+  .whoami { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:20px; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+  select { width:100%; padding:10px; background:#0d1117; border:1px solid var(--line); border-radius:6px; color:var(--text); font-size:15px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px; }
+  .card h2 { margin:0 0 4px; font-size:17px; }
+  .status { font-size:12px; color:var(--muted); margin-bottom:14px; }
+  .status .on { color:var(--good); font-weight:600; }
+  .countdown { font-size:56px; font-weight:700; letter-spacing:2px; font-variant-numeric:tabular-nums; text-align:center; margin:10px 0; }
+  .countdown.ok{color:var(--good);} .countdown.warn{color:var(--warn);} .countdown.bad{color:var(--bad);}
+  .exhausted { text-align:center; font-size:22px; font-weight:800; color:var(--bad); letter-spacing:2px; margin:14px 0; }
+  .sub { text-align:center; color:var(--muted); font-size:13px; }
+  .hidden-note { text-align:center; color:var(--muted); font-size:14px; padding:18px; border:1px dashed var(--line); border-radius:8px; }
+  button { width:100%; border:0; border-radius:8px; padding:14px; font-size:16px; font-weight:600; cursor:pointer; color:#fff; margin-top:8px; }
+  button.in { background:var(--good); } button.out { background:var(--bad); }
+  .empty { color:var(--muted); text-align:center; padding:40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>👷 My Tasks</h1>
+  <span>Clock in / out and see your task's remaining budget time</span>
+  <a href="/">← Admin view</a>
+</header>
+
+<div class="wrap">
+  <div class="whoami">
+    <label>Who are you?</label>
+    <select id="me" onchange="pickMe()"><option value="">Select your name…</option></select>
+  </div>
+  <div id="tasks"><div class="empty">Select your name to see your assigned tasks.</div></div>
+</div>
+
+<script>
+const api = (p, opts) => fetch(p, opts).then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)));
+const post = b => ({ method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(b) });
+let meId = null;
+let data = null;          // last server snapshot
+let syncClient = 0;
+
+async function loadEmployees() {
+  const emps = await api("/api/employees");
+  me.innerHTML = `<option value="">Select your name…</option>` +
+    emps.map(e => `<option value="${e.id}">${e.name} ($${e.hourly_rate}/hr)</option>`).join("");
+}
+
+async function pickMe() {
+  meId = me.value ? parseInt(me.value) : null;
+  await sync();
+}
+
+async function sync() {
+  if (!meId) { tasks.innerHTML = `<div class="empty">Select your name to see your assigned tasks.</div>`; return; }
+  data = await api(`/api/employees/${meId}/tasks`);
+  syncClient = performance.now();
+  renderCards();
+}
+
+async function toggle(taskId, isIn) {
+  try {
+    await api(isIn ? "/api/clock-out" : "/api/clock-in", post({ task_id: taskId, employee_id: meId }));
+  } catch (e) {
+    return alert(e.detail || "Clock action failed.");
+  }
+  await sync();
+}
+
+function fmt(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+// Inner HTML of the countdown slot only — this is the part that ticks.
+function countdownBody(t, elapsedH) {
+  if (!t.show_countdown)
+    return `<div class="hidden-note">🔒 The countdown for this task is hidden by management.</div>`;
+  const remBudget = t.remaining_budget - t.burn_rate * elapsedH;
+  const exhausted = remBudget <= 0 || t.exhausted;
+  const burning = t.burn_rate > 0;
+  if (exhausted)
+    return `<div class="exhausted">⛔ LABOR BUDGET EXHAUSTED</div>`;
+  if (!burning)
+    return `<div class="countdown ok">${fmt(t.remaining_seconds ?? 0)}</div><div class="sub">Clock frozen — nobody on the clock</div>`;
+  const remSec = remBudget / t.burn_rate * 3600;
+  const cls = remSec < 3600 ? 'bad' : remSec < 3*3600 ? 'warn' : 'ok';
+  return `<div class="countdown ${cls}">${fmt(remSec)}</div><div class="sub">Crew of ${t.crew_size} · $${t.burn_rate.toFixed(2)}/hr</div>`;
+}
+
+// Build the card structure (buttons included) ONCE per data change — not on
+// every tick — so the Clock in/out button element is stable and never eaten
+// mid-click by a re-render.
+function renderCards() {
+  if (!meId) { tasks.innerHTML = `<div class="empty">Select your name to see your assigned tasks.</div>`; return; }
+  if (!data || !data.tasks.length) { tasks.innerHTML = `<div class="empty">You have no assigned tasks yet.</div>`; return; }
+  // Employee may be clocked in on at most one task. If clocked in somewhere,
+  // every OTHER task's Clock-in is disabled.
+  const busyElsewhere = tid => data.active_task_id && data.active_task_id !== tid;
+  tasks.innerHTML = data.tasks.map(t => {
+    const status = t.clocked_in ? `<span class="on">● You are clocked in</span>` : `You are clocked out`;
+    let btn;
+    if (t.clocked_in) {
+      btn = `<button class="out" onclick="toggle(${t.task_id}, true)">Clock out</button>`;
+    } else if (busyElsewhere(t.task_id)) {
+      btn = `<button class="in" disabled style="opacity:.45;cursor:not-allowed">Clock in</button>
+             <div class="sub" style="margin-top:6px">Clocked in on “${data.active_task_name}” — clock out there first</div>`;
+    } else {
+      btn = `<button class="in" onclick="toggle(${t.task_id}, false)">Clock in</button>`;
+    }
+    return `<div class="card">
+      <h2>${t.task_name}</h2>
+      <div class="status">${status}</div>
+      <div id="cd-${t.task_id}">${countdownBody(t, 0)}</div>
+      ${btn}
+    </div>`;
+  }).join("");
+}
+
+// Fast loop: update ONLY the countdown text, leaving buttons untouched.
+function tick() {
+  if (!data || !data.tasks) return;
+  const elapsedH = ((performance.now() - syncClient)/1000)/3600;
+  data.tasks.forEach(t => {
+    const el = document.getElementById('cd-' + t.task_id);
+    if (el) el.innerHTML = countdownBody(t, elapsedH);
+  });
+}
+
+setInterval(tick, 250);
+setInterval(sync, 5000);
+loadEmployees();
+</script>
+</body>
+</html>

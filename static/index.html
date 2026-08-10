@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Labor Budget Countdown System</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --line: #263041;
+    --text: #e6edf3; --muted: #8b98a9; --accent: #4f9dff;
+    --good: #2ea043; --warn: #d29922; --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    padding: 16px 24px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 12px;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header span { color: var(--muted); font-size: 13px; }
+  .wrap { display: grid; grid-template-columns: 340px 1fr; gap: 20px; padding: 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 0 0 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+  input, select {
+    width: 100%; padding: 8px 10px; background: #0d1117; border: 1px solid var(--line);
+    border-radius: 6px; color: var(--text); font-size: 14px;
+  }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+    padding: 8px 12px; font-size: 13px; cursor: pointer; margin-top: 10px;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); margin-top: 0; }
+  button.good { background: var(--good); } button.bad { background: var(--bad); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { margin-top: 0; }
+
+  /* Countdown hero */
+  .hero { text-align: center; padding: 28px 16px; }
+  .hero .task { font-size: 15px; color: var(--muted); }
+  .countdown { font-size: 72px; font-weight: 700; letter-spacing: 2px; font-variant-numeric: tabular-nums; margin: 8px 0; }
+  .countdown.ok { color: var(--good); } .countdown.warn { color: var(--warn); } .countdown.bad { color: var(--bad); }
+  .exhausted { font-size: 28px; font-weight: 800; color: var(--bad); letter-spacing: 3px; }
+  .barwrap { height: 12px; background: #0d1117; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); margin: 14px auto; max-width: 620px; }
+  .bar { height: 100%; background: linear-gradient(90deg, var(--good), var(--warn)); transition: width .4s; }
+  .bar.over { background: var(--bad); }
+
+  /* Stats grid */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 12px; }
+  .stat { background: #0d1117; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .stat .k { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .5px; }
+  .stat .v { font-size: 22px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat .v.bad { color: var(--bad); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+  .pill.on { background: rgba(46,160,67,.18); color: var(--good); }
+  .muted { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⏱ Labor Budget Countdown</h1>
+  <span>Admin / Management — remaining time at the current crew's burn rate</span>
+  <a href="/employee" style="margin-left:auto;color:var(--accent);font-size:13px;text-decoration:none;border:1px solid var(--line);padding:6px 12px;border-radius:6px">Employee view →</a>
+</header>
+
+<div class="wrap">
+  <!-- LEFT: admin controls -->
+  <div>
+    <div class="panel">
+      <h2>1 · Create Employee</h2>
+      <label>Name</label>
+      <input id="empName" placeholder="Worker A" />
+      <label>Hourly rate ($/hr)</label>
+      <input id="empRate" type="number" step="0.01" placeholder="20" />
+      <button onclick="createEmployee()">Add employee</button>
+    </div>
+
+    <div class="panel">
+      <h2>2 · Create Task</h2>
+      <label>Task name</label>
+      <input id="taskName" placeholder="Frame Unit 101" />
+      <label>Labor budget ($)</label>
+      <input id="taskBudget" type="number" step="0.01" placeholder="1000" />
+      <button onclick="createTask()">Add task</button>
+    </div>
+
+    <div class="panel">
+      <h2>3 · Select Task</h2>
+      <select id="taskSelect" onchange="selectTask()"></select>
+      <div class="row" style="margin-top:10px">
+        <input id="newBudget" type="number" step="0.01" placeholder="change budget" />
+        <button class="ghost" onclick="changeBudget()">Update</button>
+      </div>
+      <label class="row" style="margin-top:12px;cursor:pointer;align-items:center;gap:8px">
+        <input id="showCountdown" type="checkbox" style="width:auto" onchange="toggleCountdownPermission()" />
+        <span style="color:var(--text);font-size:13px">Let employees see the countdown</span>
+      </label>
+    </div>
+
+    <div class="panel">
+      <h2>4 · Assign Employees</h2>
+      <div class="row">
+        <select id="assignSelect"></select>
+        <button class="ghost" onclick="assignEmployee()">Assign</button>
+      </div>
+      <div class="muted" style="margin-top:6px">Assigned workers appear below and in their Employee view.</div>
+    </div>
+
+    <div class="panel">
+      <h2>5 · Start / Stop Work (Clock In / Out)</h2>
+      <div id="clockList"><span class="muted">Select a task first.</span></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: dashboard -->
+  <div>
+    <div class="panel hero">
+      <div class="task" id="heroTask">No task selected</div>
+      <div id="heroClock"><div class="countdown ok">--:--:--</div></div>
+      <div class="barwrap"><div class="bar" id="bar" style="width:0%"></div></div>
+      <div class="muted" id="heroSub"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Management Dashboard</h2>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Crew Currently Working</h2>
+      <table><thead><tr><th>Employee</th><th>Rate</th><th>Clocked in</th></tr></thead>
+      <tbody id="crewBody"><tr><td colspan="3" class="muted">Nobody clocked in.</td></tr></tbody></table>
+    </div>
+
+    <div class="panel">
+      <h2>Labor Cost by Employee (this task)</h2>
+      <table><thead><tr><th>Employee</th><th>Hours worked</th><th>Labor cost</th></tr></thead>
+      <tbody id="laborBody"><tr><td colspan="3" class="muted">No labor recorded.</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+const api = (p, opts) => fetch(p, opts).then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)));
+let currentTask = null;
+let state = null;          // last server snapshot
+let syncClientTime = 0;    // performance.now() when snapshot fetched
+
+// ---------- admin actions ----------
+async function createEmployee() {
+  const name = empName.value.trim(), rate = parseFloat(empRate.value);
+  if (!name || !(rate > 0)) return alert("Enter a name and a positive rate.");
+  await api("/api/employees", post({ name, hourly_rate: rate }));
+  empName.value = empRate.value = "";
+  await refreshClockList();
+}
+
+async function createTask() {
+  const name = taskName.value.trim(), budget = parseFloat(taskBudget.value);
+  if (!name || !(budget > 0)) return alert("Enter a task name and a positive budget.");
+  const t = await api("/api/tasks", post({ name, labor_budget: budget }));
+  taskName.value = taskBudget.value = "";
+  await loadTasks(t.id);
+}
+
+async function changeBudget() {
+  if (!currentTask) return;
+  const b = parseFloat(newBudget.value);
+  if (!(b > 0)) return alert("Enter a positive budget.");
+  await api(`/api/tasks/${currentTask}`, { method: "PATCH", headers: hdr(), body: JSON.stringify({ labor_budget: b }) });
+  newBudget.value = "";
+  await populateTaskOptions(currentTask);   // refresh the "($budget)" label
+  await sync();
+}
+
+// Fill the task dropdown with every created task, keeping a selection.
+async function populateTaskOptions(selectId) {
+  const tasks = await api("/api/tasks");
+  taskSelect.innerHTML = tasks.length
+    ? tasks.map(t => `<option value="${t.id}">${t.name} — $${t.labor_budget.toFixed(2)} budget</option>`).join("")
+    : `<option value="">— no tasks yet, create one above —</option>`;
+  if (tasks.length) {
+    currentTask = selectId || parseInt(taskSelect.value);
+    taskSelect.value = currentTask;
+  } else {
+    currentTask = null;
+  }
+  return tasks.length;
+}
+
+// Called on page load and after creating a task.
+async function loadTasks(selectId) {
+  if (await populateTaskOptions(selectId)) await selectTask();
+}
+
+// The admin picks a task from the dropdown -> show that task's stats.
+async function selectTask() {
+  if (!taskSelect.value) return;
+  currentTask = parseInt(taskSelect.value);
+  await refreshClockList();
+  await sync();
+}
+
+async function toggleCountdownPermission() {
+  if (!currentTask) return;
+  await api(`/api/tasks/${currentTask}`, { method: "PATCH", headers: hdr(), body: JSON.stringify({ show_countdown: showCountdown.checked }) });
+  await sync();
+}
+
+async function refreshClockList() {
+  if (!currentTask) return;
+  const [emps, assigned, st, active] = await Promise.all([
+    api("/api/employees"),
+    api(`/api/tasks/${currentTask}/assignments`),
+    api(`/api/tasks/${currentTask}/state`),
+    api("/api/active-sessions"),
+  ]);
+  // employee_id -> task they're currently clocked in on (any task)
+  const activeBy = new Map(active.map(a => [a.employee_id, a]));
+  // Assign dropdown = employees not yet assigned to this task.
+  const assignedIds = new Set(assigned.map(e => e.id));
+  const unassigned = emps.filter(e => !assignedIds.has(e.id));
+  assignSelect.innerHTML = unassigned.length
+    ? unassigned.map(e => `<option value="${e.id}">${e.name} ($${e.hourly_rate}/hr)</option>`).join("")
+    : `<option value="">— all employees assigned —</option>`;
+
+  // Clock in/out list = only ASSIGNED employees.
+  const onClock = new Set(st.crew.map(c => c.employee_id));
+  clockList.innerHTML = assigned.length ? assigned.map(e => {
+    const on = onClock.has(e.id);
+    // Busy on a DIFFERENT task -> cannot clock in here.
+    const elsewhere = !on && activeBy.has(e.id) ? activeBy.get(e.id) : null;
+    let clockBtn;
+    if (on) {
+      clockBtn = `<button class="bad" onclick="toggleClock(${e.id}, true)">Clock out</button>`;
+    } else if (elsewhere) {
+      clockBtn = `<button class="good" disabled style="opacity:.45;cursor:not-allowed" title="Clocked in on ${elsewhere.task_name}">Clock in</button>`;
+    } else {
+      clockBtn = `<button class="good" onclick="toggleClock(${e.id}, false)">Clock in</button>`;
+    }
+    const note = elsewhere ? `<div class="muted" style="font-size:11px">on “${elsewhere.task_name}”</div>` : "";
+    return `<div class="row" style="justify-content:space-between;margin-bottom:8px;gap:8px">
+      <span>${e.name} <span class="muted">$${e.hourly_rate}/hr</span>${note}</span>
+      <span class="row" style="gap:6px">
+        ${clockBtn}
+        <button class="ghost" title="${on ? 'Clock out first to unassign' : 'Remove from task'}" onclick="unassignEmployee(${e.id}, ${on})">✕</button>
+      </span>
+    </div>`;
+  }).join("") : `<span class="muted">No employees assigned yet — assign one above.</span>`;
+}
+
+async function assignEmployee() {
+  if (!currentTask || !assignSelect.value) return;
+  await api(`/api/tasks/${currentTask}/assign`, post({ employee_id: parseInt(assignSelect.value) }));
+  await refreshClockList();
+}
+
+async function unassignEmployee(empId, isOn) {
+  if (isOn) return alert("Clock the employee out before removing them from the task.");
+  if (!confirm("Remove this worker from the task? Their recorded hours and labor cost are preserved.")) return;
+  try {
+    await api(`/api/tasks/${currentTask}/unassign`, post({ employee_id: empId }));
+  } catch (e) {
+    return alert(e.detail || "Could not unassign.");
+  }
+  await refreshClockList();
+  await sync();
+}
+
+async function toggleClock(empId, isOn) {
+  const url = isOn ? "/api/clock-out" : "/api/clock-in";
+  try {
+    await api(url, post({ task_id: currentTask, employee_id: empId }));
+  } catch (e) {
+    return alert(e.detail || "Clock action failed.");
+  }
+  await refreshClockList();
+  await sync();
+}
+
+// ---------- live countdown ----------
+async function sync() {
+  if (!currentTask) return;
+  state = await api(`/api/tasks/${currentTask}/state`);
+  syncClientTime = performance.now();
+  render();
+}
+
+function liveRemainingBudget() {
+  if (!state) return 0;
+  const elapsedH = ((performance.now() - syncClientTime) / 1000) / 3600;
+  return state.remaining_budget - state.burn_rate * elapsedH;
+}
+
+function fmt(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+// "X HOURS Y MINUTES" label, rounded to the nearest minute.
+function hoursMinutes(sec) {
+  const totalMin = Math.round(Math.max(0, sec) / 60);
+  return `${Math.floor(totalMin / 60)} HOURS ${String(totalMin % 60).padStart(2,'0')} MINUTES`;
+}
+
+function render() {
+  if (!state) return;
+  heroTask.textContent = state.task_name;
+  showCountdown.checked = !!state.show_countdown;
+
+  const remBudget = liveRemainingBudget();
+  const exhausted = remBudget <= 0 || state.exhausted;
+  const burning = state.burn_rate > 0;
+
+  // hero clock
+  if (exhausted) {
+    const over = Math.max(state.over_budget, -remBudget);
+    heroClock.innerHTML = `<div class="exhausted">⛔ LABOR BUDGET EXHAUSTED</div>
+      <div class="muted" style="margin-top:8px">Over-budget labor: <b style="color:var(--bad)">$${over.toFixed(2)}</b>${burning ? ' and climbing' : ''}</div>`;
+  } else if (!burning) {
+    heroClock.innerHTML = `<div class="countdown ok">${fmt(state.remaining_seconds ?? 0)}</div>
+      <div class="muted">Clock frozen — nobody is on the clock</div>`;
+  } else {
+    const remSec = remBudget / state.burn_rate * 3600;
+    const cls = remSec < 3600 ? 'bad' : remSec < 3 * 3600 ? 'warn' : 'ok';
+    heroClock.innerHTML = `<div class="countdown ${cls}">${fmt(remSec)}</div>
+      <div class="muted" style="font-size:15px;letter-spacing:1px">≈ ${hoursMinutes(remSec)} REMAINING</div>`;
+  }
+
+  // budget bar
+  const pct = Math.min(100, state.labor_budget ? (state.labor_budget - Math.max(0, remBudget)) / state.labor_budget * 100 : 0);
+  bar.style.width = pct + "%";
+  bar.className = exhausted ? "bar over" : "bar";
+
+  heroSub.textContent = burning
+    ? `Crew of ${state.crew_size} burning $${state.burn_rate.toFixed(2)}/hr`
+    : `Assign & clock in a worker to start the countdown`;
+
+  // stats
+  const remB = Math.max(0, remBudget);
+  const consumed = state.labor_budget - remBudget;
+  const actualHours = state.labor_by_employee.reduce((a, l) => a + l.hours_worked, 0);
+  // Budgeted/remaining HOURS are derived from the current crew burn rate.
+  const origHrs = burning ? (state.labor_budget / state.burn_rate) : null;
+  const remHrs = burning ? (remB / state.burn_rate) : null;
+  const hrs = v => v === null ? "— (no crew)" : `${v.toFixed(2)} h`;
+  stats.innerHTML = card("Original budget", `$${state.labor_budget.toFixed(2)}`)
+    + card("Consumed", `$${Math.max(0, consumed).toFixed(2)}`)
+    + card("Remaining budget", `$${remB.toFixed(2)}`, exhausted)
+    + card("Original budgeted hours", hrs(origHrs))
+    + card("Remaining estimated hours", hrs(remHrs), exhausted)
+    + card("Actual hours worked", `${actualHours.toFixed(2)} h`)
+    + card("Crew size", state.crew_size)
+    + card("Crew cost", `$${state.burn_rate.toFixed(2)}/hr`)
+    + card("Budget used", `${Math.min(100, Math.max(0, consumed) / state.labor_budget * 100).toFixed(1)}%`)
+    + card("Budget remaining", `${Math.max(0, remB / state.labor_budget * 100).toFixed(1)}%`)
+    + card("Over budget", `$${Math.max(0, -remBudget).toFixed(2)}`, exhausted);
+
+  // crew table
+  crewBody.innerHTML = state.crew.length ? state.crew.map(c =>
+    `<tr><td>${c.name} <span class="pill on">on clock</span></td><td>$${c.hourly_rate}/hr</td>
+     <td class="muted">${new Date(c.clock_in*1000).toLocaleTimeString()}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="muted">Nobody clocked in.</td></tr>`;
+
+  // labor by employee
+  laborBody.innerHTML = state.labor_by_employee.length ? state.labor_by_employee.map(l =>
+    `<tr><td>${l.name}</td><td>${l.hours_worked.toFixed(3)} h</td><td>$${l.cost.toFixed(2)}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="muted">No labor recorded.</td></tr>`;
+}
+
+const card = (k, v, bad) => `<div class="stat"><div class="k">${k}</div><div class="v ${bad?'bad':''}">${v}</div></div>`;
+const hdr = () => ({ "Content-Type": "application/json" });
+const post = (b) => ({ method: "POST", headers: hdr(), body: JSON.stringify(b) });
+
+// tick the visible clock every second; re-sync with server every 5s
+setInterval(render, 250);
+setInterval(sync, 5000);
+loadTasks();
+</script>
+</body>
+</html>
